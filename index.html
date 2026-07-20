@@ -31,6 +31,7 @@
           <button id="sign-out" class="icon-button" title="Выйти" aria-label="Выйти">↗</button>
         </header>
         <div class="search-wrap"><input id="user-search" type="search" placeholder="Найти по юзернейму" autocomplete="off" /></div>
+        <p id="app-message" class="app-message" role="status" aria-live="polite" hidden></p>
         <div id="search-results" class="people-list"></div>
         <p class="section-label">ДИАЛОГИ</p>
         <div id="conversation-list" class="conversation-list"></div>
@@ -39,13 +40,13 @@
       <section class="chat-panel">
         <div id="empty-state" class="empty-state"><div><p class="eyebrow">ВАШИ СООБЩЕНИЯ</p><h2>Выберите диалог<br />или найдите человека.</h2></div></div>
         <div id="chat" class="chat" hidden>
-          <header class="chat-header"><strong id="chat-title"></strong><span id="chat-status">личный чат</span></header>
+          <header class="chat-header"><button id="mobile-back" class="mobile-back" type="button" aria-label="К списку диалогов">‹</button><strong id="chat-title"></strong><span id="chat-status">личный чат</span></header>
           <div id="message-list" class="message-list" aria-live="polite"></div>
           <form id="message-form" class="composer"><input id="message-input" maxlength="2000" placeholder="Напишите сообщение" autocomplete="off" /><button type="submit" aria-label="Отправить">↑</button></form>
         </div>
       </section>
     </main>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="app.js?v=2"></script>
+    <script src="app.js?v=3"></script>
   </body>
 </html>
