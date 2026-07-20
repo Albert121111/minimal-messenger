@@ -43,16 +43,16 @@ async function loadConversations() {
 }
 
 function renderConversations() {
-  $('conversation-list').innerHTML = state.conversations.length ? state.conversations.map((chat) => \`<button class="conversation \${state.active?.id === chat.id ? 'active' : ''}" data-id="\${chat.id}"><span class="avatar">\${initials(chat.person.username)}</span><div><strong>@\${escapeHtml(chat.person.username)}</strong><small>\${escapeHtml(chat.last?.body || 'Начните разговор')}</small></div></button>\`).join('') : '<p class="notice">Диалогов пока нет.</p>';
+  $('conversation-list').innerHTML = state.conversations.length ? state.conversations.map((chat) => `<button class="conversation ${state.active?.id === chat.id ? 'active' : ''}" data-id="${chat.id}"><span class="avatar">${initials(chat.person.username)}</span><div><strong>@${escapeHtml(chat.person.username)}</strong><small>${escapeHtml(chat.last?.body || 'Начните разговор')}</small></div></button>`).join('') : '<p class="notice">Диалогов пока нет.</p>';
   document.querySelectorAll('.conversation').forEach((button) => button.addEventListener('click', () => openConversation(state.conversations.find((chat) => chat.id === button.dataset.id))));
 }
 
 async function searchUsers() {
   const query = $('user-search').value.trim().toLowerCase();
   if (query.length < 2) { $('search-results').innerHTML = ''; return; }
-  const { data, error } = await db.from('profiles').select('id, username').ilike('username', \`%\${query}%\`).neq('id', state.user.id).limit(8);
+  const { data, error } = await db.from('profiles').select('id, username').ilike('username', `%${query}%`).neq('id', state.user.id).limit(8);
   if (error) return;
-  $('search-results').innerHTML = data.length ? data.map((person) => \`<button class="person" data-id="\${person.id}" data-name="\${escapeHtml(person.username)}"><span class="avatar">\${initials(person.username)}</span><div><strong>@\${escapeHtml(person.username)}</strong><small>Начать диалог</small></div></button>\`).join('') : '<p class="notice">Никого не найдено.</p>';
+  $('search-results').innerHTML = data.length ? data.map((person) => `<button class="person" data-id="${person.id}" data-name="${escapeHtml(person.username)}"><span class="avatar">${initials(person.username)}</span><div><strong>@${escapeHtml(person.username)}</strong><small>Начать диалог</small></div></button>`).join('') : '<p class="notice">Никого не найдено.</p>';
   document.querySelectorAll('.person').forEach((button) => button.addEventListener('click', () => startConversation(button.dataset.id, button.dataset.name)));
 }
 
@@ -77,7 +77,7 @@ async function openConversation(chat) {
 }
 
 function renderMessages(messages) { $('message-list').innerHTML = messages.map(messageMarkup).join(''); scrollMessages(); }
-function messageMarkup(message) { return \`<article class="message \${message.sender_id === state.user.id ? 'mine' : ''}">\${escapeHtml(message.body)}<time>\${formatTime(message.created_at)}</time></article>\`; }
+function messageMarkup(message) { return `<article class="message ${message.sender_id === state.user.id ? 'mine' : ''}">${escapeHtml(message.body)}<time>${formatTime(message.created_at)}</time></article>`; }
 function appendMessage(message) { if (state.active?.id !== message.conversation_id) return; $('message-list').insertAdjacentHTML('beforeend', messageMarkup(message)); scrollMessages(); loadConversations(); }
 function scrollMessages() { const list = $('message-list'); requestAnimationFrame(() => { list.scrollTop = list.scrollHeight; }); }
 
