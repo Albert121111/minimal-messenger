@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#101010" />
+    <title>Сообщения</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main id="auth-view" class="auth-wrap">
+      <section class="auth-card">
+        <p class="eyebrow">MINIMAL MESSENGER</p>
+        <h1>Сообщения.<span>Просто.</span></h1>
+        <p class="muted">Вход — и вся история уже с вами.</p>
+        <form id="auth-form" novalidate>
+          <label id="username-label">Юзернейм<input id="username" autocomplete="username" placeholder="например, alex_01" maxlength="24" /></label>
+          <label>Эл. почта<input id="email" type="email" autocomplete="email" placeholder="you@example.com" required /></label>
+          <label>Пароль<input id="password" type="password" autocomplete="current-password" placeholder="минимум 6 символов" minlength="6" required /></label>
+          <button id="auth-submit" type="submit">Создать аккаунт</button>
+        </form>
+        <button id="switch-auth" class="text-button">Уже есть аккаунт? Войти</button>
+        <p id="auth-message" class="form-message" aria-live="polite"></p>
+      </section>
+    </main>
+
+    <main id="app-view" class="app-shell" hidden>
+      <aside class="sidebar">
+        <header class="sidebar-header">
+          <div><p class="eyebrow">СООБЩЕНИЯ</p><strong id="my-username"></strong></div>
+          <button id="sign-out" class="icon-button" title="Выйти" aria-label="Выйти">↗</button>
+        </header>
+        <div class="search-wrap"><input id="user-search" type="search" placeholder="Найти по юзернейму" autocomplete="off" /></div>
+        <div id="search-results" class="people-list"></div>
+        <p class="section-label">ДИАЛОГИ</p>
+        <div id="conversation-list" class="conversation-list"></div>
+      </aside>
+
+      <section class="chat-panel">
+        <div id="empty-state" class="empty-state"><div><p class="eyebrow">ВАШИ СООБЩЕНИЯ</p><h2>Выберите диалог<br />или найдите человека.</h2></div></div>
+        <div id="chat" class="chat" hidden>
+          <header class="chat-header"><strong id="chat-title"></strong><span id="chat-status">личный чат</span></header>
+          <div id="message-list" class="message-list" aria-live="polite"></div>
+          <form id="message-form" class="composer"><input id="message-input" maxlength="2000" placeholder="Напишите сообщение" autocomplete="off" /><button type="submit" aria-label="Отправить">↑</button></form>
+        </div>
+      </section>
+    </main>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
