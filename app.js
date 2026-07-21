@@ -29,6 +29,20 @@ function showAppMessage(message = '', error = false) {
   target.dataset.error = String(error);
 }
 
+function finishBoot() {
+  $('boot-screen').hidden = true;
+}
+
+function showAuth(message = '', error = false) {
+  state.channel?.unsubscribe();
+  state.channel = null;
+  state.active = null;
+  $('app-view').hidden = true;
+  $('app-view').classList.remove('chat-open');
+  $('auth-view').hidden = false;
+  if (message) showMessage(message, error);
+}
+
 function humanError(error, fallback = 'Попробуйте ещё раз.') {
   const message = String(error?.message || error || '');
   if (/duplicate key|unique/i.test(message)) return 'Такой юзернейм уже занят.';
@@ -50,6 +64,12 @@ function validUsername(username) { return /^[a-z0-9_]{3,24}$/.test(username); }
 function validEmail(email) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email); }
 function profileFromRelation(profile) { return Array.isArray(profile) ? profile[0] : profile; }
 
+function renderOwnProfile() {
+  $('my-username').textContent = '@' + state.profile.username;
+  $('my-about').textContent = state.profile.about || 'Добавьте короткий статус';
+  $('profile-about').value = state.profile.about || '';
+}
+
 function setAuthMode(signingUp) {
   state.signingUp = signingUp;
   $('username-label').hidden = !signingUp;
@@ -66,7 +86,7 @@ async function getProfile() {
     throw new Error('Не удалось загрузить профиль. Выйдите и войдите снова.');
   }
   state.profile = data;
-  $('my-username').textContent = '@' + data.username;
+  renderOwnProfile();
 }
 
 async function loadConversations() {
@@ -85,7 +105,7 @@ async function loadConversations() {
 
   const { data: members, error: membersError } = await db
     .from('conversation_members')
-    .select('conversation_id, user_id, profiles(username)')
+    .select('conversation_id, user_id, profiles(username, about)')
     .in('conversation_id', ids)
     .neq('user_id', state.user.id);
   if (membersError) throw membersError;
@@ -140,7 +160,7 @@ async function searchUsers() {
 
   const { data, error } = await db
     .from('profiles')
-    .select('id, username')
+    .select('id, username, about')
     .ilike('username', `%${query}%`)
     .neq('id', state.user.id)
     .limit(8);
@@ -152,18 +172,21 @@ async function searchUsers() {
 
   $('search-results').innerHTML = data.length
     ? data.map((person) => `
-      <button class="person" data-id="${person.id}" data-name="${escapeHtml(person.username)}">
+      <button class="person" data-id="${person.id}">
         <span class="avatar">${initials(person.username)}</span>
-        <div><strong>@${escapeHtml(person.username)}</strong><small>Начать диалог</small></div>
+        <div><strong>@${escapeHtml(person.username)}</strong><small>${escapeHtml(person.about || 'Начать диалог')}</small></div>
       </button>`).join('')
     : '<p class="notice">Никого не найдено.</p>';
 
   document.querySelectorAll('.person').forEach((button) => {
-    button.addEventListener('click', () => startConversation(button.dataset.id, button.dataset.name));
+    button.addEventListener('click', () => {
+      const person = data.find((item) => item.id === button.dataset.id);
+      if (person) startConversation(person.id, person.username, person.about || '');
+    });
   });
 }
 
-async function startConversation(userId, username) {
+async function startConversation(userId, username, about = '') {
   if (state.openingConversation) return;
   state.openingConversation = true;
   showAppMessage('Открываем чат…');
@@ -173,7 +196,7 @@ async function startConversation(userId, username) {
     if (error) throw error;
     if (!id) throw new Error('Сервер не вернул идентификатор диалога.');
 
-    const fallbackChat = { id, person: { username } };
+    const fallbackChat = { id, person: { username, about } };
     try {
       await loadConversations();
     } catch (error) {
@@ -196,6 +219,7 @@ async function openConversation(chat) {
   state.active = chat;
   state.messageIds = new Set();
   $('chat-title').textContent = '@' + chat.person.username;
+  $('chat-status').textContent = chat.person.about || 'личный чат';
   $('empty-state').hidden = true;
   $('chat').hidden = false;
   $('app-view').classList.add('chat-open');
@@ -267,6 +291,32 @@ async function sendMessage(event) {
   appendMessage(data);
 }
 
+async function updateProfile(event) {
+  event.preventDefault();
+  const about = $('profile-about').value.trim();
+  const button = $('profile-form').querySelector('button[type="submit"]');
+  button.disabled = true;
+
+  try {
+    const { data, error } = await db
+      .from('profiles')
+      .update({ about })
+      .eq('id', state.user.id)
+      .select()
+      .single();
+    if (error) throw error;
+    state.profile = data;
+    renderOwnProfile();
+    if (state.active?.person?.id === state.user.id) state.active.person.about = about;
+    $('profile-form').hidden = true;
+    showAppMessage('Статус сохранён.');
+  } catch (error) {
+    showAppMessage('Не удалось сохранить статус: ' + humanError(error), true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 async function enterApp(user) {
   if (state.enteringApp || (state.user?.id === user.id && !$('app-view').hidden)) return;
   state.enteringApp = true;
@@ -277,39 +327,38 @@ async function enterApp(user) {
     $('auth-view').hidden = true;
     $('app-view').hidden = false;
     showAppMessage();
-  } catch (error) {
-    state.user = null;
-    showMessage(humanError(error, 'Не удалось открыть аккаунт.'), true);
   } finally {
     state.enteringApp = false;
   }
 }
 
 async function init() {
-  if (!configured) {
-    showMessage('Добавьте URL и публичный ключ Supabase в app.js перед запуском.', true);
-    return;
+  try {
+    if (!configured) throw new Error('Добавьте URL и публичный ключ Supabase в app.js перед запуском.');
+    const { data: { session } } = await db.auth.getSession();
+    if (session) await enterApp(session.user);
+    else showAuth();
+
+    db.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT' || !session) {
+        state.user = null;
+        state.profile = null;
+        showAuth();
+        return;
+      }
+      if (event === 'SIGNED_IN' && !state.user) {
+        enterApp(session.user).catch((error) => {
+          state.user = null;
+          showAuth(humanError(error, 'Не удалось открыть аккаунт.'), true);
+        });
+      }
+    });
+  } catch (error) {
+    state.user = null;
+    showAuth(humanError(error, 'Не удалось открыть аккаунт.'), true);
+  } finally {
+    finishBoot();
   }
-
-  const { data: { session } } = await db.auth.getSession();
-  if (session) await enterApp(session.user);
-
-  db.auth.onAuthStateChange((event, session) => {
-    if (event === 'SIGNED_OUT' || !session) {
-      state.channel?.unsubscribe();
-      state.channel = null;
-      state.active = null;
-      state.user = null;
-      state.profile = null;
-      $('app-view').hidden = true;
-      $('auth-view').hidden = false;
-      $('app-view').classList.remove('chat-open');
-      return;
-    }
-    if (event === 'SIGNED_IN' && !state.user) {
-      enterApp(session.user);
-    }
-  });
 }
 
 $('auth-form').addEventListener('submit', async (event) => {
@@ -355,6 +404,12 @@ $('user-search').addEventListener('input', () => {
   window.searchTimer = setTimeout(() => searchUsers().catch((error) => showAppMessage(humanError(error), true)), 250);
 });
 $('message-form').addEventListener('submit', sendMessage);
+$('profile-form').addEventListener('submit', updateProfile);
+$('profile-settings').addEventListener('click', () => {
+  const form = $('profile-form');
+  form.hidden = !form.hidden;
+  if (!form.hidden) $('profile-about').focus();
+});
 $('sign-out').addEventListener('click', () => db.auth.signOut().catch((error) => showAppMessage(humanError(error), true)));
 $('mobile-back').addEventListener('click', () => $('app-view').classList.remove('chat-open'));
 
