@@ -27,6 +27,13 @@ const state = {
   remoteTypingTimer: null,
   typingTimer: null,
   attachmentUrls: new Map(),
+  mediaRecorder: null,
+  recordingStream: null,
+  voiceChunks: [],
+  voiceTimer: null,
+  voiceStartedAt: null,
+  discardVoice: false,
+  membershipRefreshTimer: null,
 };
 
 function showMessage(message = '', error = false) {
@@ -57,15 +64,20 @@ function resetChatUi() {
   $('pinned-message').hidden = true;
   $('group-member-form').hidden = true;
   $('add-member-button').hidden = true;
+  $('group-manage-button').hidden = true;
   $('composer-context').hidden = true;
   $('attachment-preview').hidden = true;
   $('emoji-strip').hidden = true;
   $('message-input').value = '';
   $('attachment-input').value = '';
+  $('voice-recording').hidden = true;
+  $('voice-button').classList.remove('recording');
+  $('voice-button').textContent = '⌁';
 }
 
 function showAuth(message = '', error = false) {
   state.channel?.unsubscribe();
+  stopVoiceRecording(true);
   state.channel = null;
   clearTimeout(state.typingTimer);
   clearTimeout(state.remoteTypingTimer);
@@ -82,6 +94,7 @@ function showAuth(message = '', error = false) {
   state.messageQuery = '';
   state.remoteTyping = null;
   state.attachmentUrls = new Map();
+  clearTimeout(state.membershipRefreshTimer);
   state.searchRequest += 1;
   resetChatUi();
   $('conversation-list').innerHTML = '';
@@ -112,6 +125,11 @@ function humanError(error, fallback = 'Попробуйте ещё раз.') {
   if (/invalid recipient/i.test(message)) return 'Нельзя открыть чат с самим собой.';
   if (/user not found/i.test(message)) return 'Пользователь не найден.';
   if (/only group admins/i.test(message)) return 'Добавлять участников может только администратор группы.';
+  if (/only group admins can rename/i.test(message)) return 'Переименовывать группу может только администратор.';
+  if (/only group admins can manage roles/i.test(message)) return 'Менять роли может только администратор.';
+  if (/only group admins can remove/i.test(message)) return 'Исключать участников может только администратор.';
+  if (/assign another admin/i.test(message)) return 'Сначала назначьте другого администратора.';
+  if (/user is not a group member/i.test(message)) return 'Пользователь уже не состоит в этой группе.';
   if (/choose at least one participant/i.test(message)) return 'Добавьте хотя бы одного участника.';
   if (/message cannot be edited/i.test(message)) return 'Это сообщение уже нельзя изменить.';
   if (/message cannot be deleted/i.test(message)) return 'Это сообщение уже нельзя удалить.';
@@ -170,6 +188,7 @@ function conversationStatus(chat) {
 function messagePreview(message) {
   if (!message) return 'Начните разговор';
   if (message.deleted_at) return 'Сообщение удалено';
+  if (String(message.attachment_type || '').startsWith('audio/')) return '🎤 Голосовое сообщение';
   if (message.attachment_name && (!message.body || message.body === `📎 ${message.attachment_name}`)) return `📎 ${message.attachment_name}`;
   return message.body || 'Вложение';
 }
@@ -233,7 +252,7 @@ async function loadConversations() {
   const [{ data: rows, error: rowsError }, { data: memberRows, error: membersError }, { data: messages, error: messagesError }] = await Promise.all([
     db.from('conversations').select('id, kind, title, pinned_message_id, pinned_at').in('id', ids),
     db.from('conversation_members').select('conversation_id, user_id, role, last_read_at, profiles(id, username, about, avatar_emoji)').in('conversation_id', ids),
-    db.from('messages').select('conversation_id, sender_id, body, created_at, deleted_at, attachment_name').in('conversation_id', ids).order('created_at', { ascending: false }),
+    db.from('messages').select('conversation_id, sender_id, body, created_at, deleted_at, attachment_name, attachment_type').in('conversation_id', ids).order('created_at', { ascending: false }),
   ]);
   if (rowsError) throw rowsError;
   if (membersError) throw membersError;
@@ -262,7 +281,14 @@ async function loadConversations() {
   }).filter((chat) => chat.kind === 'group' || chat.person?.username)
     .sort((a, b) => new Date(b.last?.created_at || b.joinedAt || 0) - new Date(a.last?.created_at || a.joinedAt || 0));
 
-  if (activeId) state.active = state.conversations.find((chat) => chat.id === activeId) || state.active;
+  if (activeId) {
+    const refreshedActive = state.conversations.find((chat) => chat.id === activeId);
+    if (refreshedActive) state.active = refreshedActive;
+    else {
+      state.active = null;
+      resetChatUi();
+    }
+  }
   renderConversations();
 }
 
@@ -403,14 +429,135 @@ async function addGroupMember() {
   }
 }
 
+function isGroupAdmin() {
+  return state.active?.kind === 'group' && state.active.role === 'admin';
+}
+
+function renderGroupPanel() {
+  const panel = $('group-member-form');
+  if (!state.active || state.active.kind !== 'group') {
+    panel.hidden = true;
+    return;
+  }
+  const canManage = isGroupAdmin();
+  const members = [...(state.active.members || [])].sort((a, b) => {
+    if (a.role !== b.role) return a.role === 'admin' ? -1 : 1;
+    return a.username.localeCompare(b.username);
+  });
+  panel.innerHTML = `
+    <div class="group-panel-head"><b>${members.length} участников</b><button type="button" data-group-action="close" aria-label="Закрыть">×</button></div>
+    ${canManage ? `<div class="group-rename"><input id="group-rename-input" maxlength="60" value="${escapeHtml(state.active.title || '')}" aria-label="Название группы" /><button type="button" data-group-action="rename">Сохранить</button></div>` : ''}
+    <div class="group-members-list">${members.map((member) => {
+      const mine = member.id === state.user.id;
+      const role = member.role === 'admin' ? 'администратор' : 'участник';
+      return `<div class="group-member-row">
+        ${avatarMarkup(member)}
+        <div class="group-member-copy"><b>${escapeHtml(mine ? 'Вы' : '@' + member.username)}</b><small>${role}</small></div>
+        ${canManage && !mine ? `<div class="group-member-actions">
+          ${member.role === 'member' ? `<button type="button" data-group-action="promote" data-member-id="${member.id}" title="Сделать администратором">↑</button>` : `<button type="button" data-group-action="demote" data-member-id="${member.id}" title="Сделать участником">↓</button>`}
+          <button class="danger" type="button" data-group-action="remove" data-member-id="${member.id}" title="Исключить">×</button>
+        </div>` : ''}
+      </div>`;
+    }).join('')}</div>
+    <button class="group-leave" type="button" data-group-action="leave">Покинуть группу</button>`;
+}
+
+function toggleGroupPanel() {
+  if (!state.active || state.active.kind !== 'group') return;
+  const panel = $('group-member-form');
+  panel.hidden = !panel.hidden;
+  if (!panel.hidden) renderGroupPanel();
+}
+
+async function refreshConversationState() {
+  const panelOpen = !$('group-member-form').hidden;
+  await loadConversations();
+  if (state.active) {
+    updateChatHeader();
+    if (panelOpen) renderGroupPanel();
+  }
+}
+
+async function renameGroup() {
+  const title = $('group-rename-input')?.value.trim() || '';
+  try {
+    const { error } = await db.rpc('rename_group_conversation', { target_conversation_id: state.active.id, new_title: title });
+    if (error) throw error;
+    state.active.title = title;
+    await refreshConversationState();
+    showAppMessage('Название группы изменено.');
+  } catch (error) {
+    showAppMessage(humanError(error), true);
+  }
+}
+
+async function changeGroupRole(memberId, role) {
+  try {
+    const { error } = await db.rpc('set_group_member_role', {
+      target_conversation_id: state.active.id,
+      target_user_id: memberId,
+      new_role: role,
+    });
+    if (error) throw error;
+    await refreshConversationState();
+  } catch (error) {
+    showAppMessage(humanError(error), true);
+  }
+}
+
+async function removeGroupMember(memberId) {
+  const member = state.active.members?.find((item) => item.id === memberId);
+  if (!member || !window.confirm(`Исключить @${member.username} из группы?`)) return;
+  try {
+    const { error } = await db.rpc('remove_group_member', {
+      target_conversation_id: state.active.id,
+      target_user_id: memberId,
+    });
+    if (error) throw error;
+    await refreshConversationState();
+    showAppMessage(`@${member.username} исключён из группы.`);
+  } catch (error) {
+    showAppMessage(humanError(error), true);
+  }
+}
+
+async function leaveGroup() {
+  if (!state.active || !window.confirm(`Покинуть группу «${conversationName(state.active)}»?`)) return;
+  const conversationId = state.active.id;
+  try {
+    const { error } = await db.rpc('leave_group_conversation', { target_conversation_id: conversationId });
+    if (error) throw error;
+    state.active = null;
+    resetChatUi();
+    await loadConversations();
+    showAppMessage('Вы покинули группу.');
+  } catch (error) {
+    showAppMessage(humanError(error), true);
+  }
+}
+
+async function handleGroupPanelClick(event) {
+  const button = event.target.closest('[data-group-action]');
+  if (!button || !state.active) return;
+  const action = button.dataset.groupAction;
+  if (action === 'close') $('group-member-form').hidden = true;
+  if (action === 'rename') await renameGroup();
+  if (action === 'promote') await changeGroupRole(button.dataset.memberId, 'admin');
+  if (action === 'demote') await changeGroupRole(button.dataset.memberId, 'member');
+  if (action === 'remove') await removeGroupMember(button.dataset.memberId);
+  if (action === 'leave') await leaveGroup();
+}
+
 function updateChatHeader() {
   if (!state.active) return;
   $('chat-title').textContent = conversationName(state.active);
   $('chat-status').textContent = conversationStatus(state.active);
   $('add-member-button').hidden = !(state.active.kind === 'group' && state.active.role === 'admin');
+  $('group-manage-button').hidden = state.active.kind !== 'group';
 }
 
 async function openConversation(chat) {
+  stopVoiceRecording(true);
   state.active = chat;
   state.messageIds = new Set();
   state.messages = [];
@@ -494,6 +641,10 @@ function seenMarkup(message) {
 
 function attachmentMarkup(message) {
   if (!message.attachment_path || message.deleted_at) return '';
+  const type = String(message.attachment_type || '');
+  if (type.startsWith('audio/')) {
+    return `<div class="voice-message" data-attachment-path="${encodeData(message.attachment_path)}" data-attachment-type="${encodeData(type)}"><span>🎤</span><div><b>Голосовое сообщение</b><audio controls preload="metadata"></audio></div></div>`;
+  }
   return `<a class="attachment" data-attachment-path="${encodeData(message.attachment_path)}" data-attachment-type="${encodeData(message.attachment_type || '')}" target="_blank" rel="noopener"><span>📎</span><b>${escapeHtml(message.attachment_name || 'Файл')}</b></a>`;
 }
 
@@ -557,7 +708,7 @@ async function hydrateAttachments() {
       state.attachmentUrls.set(path, url);
     }
     if (!link.isConnected) continue;
-    link.href = url;
+    if (link.tagName === 'A') link.href = url;
     const type = decodeData(link.dataset.attachmentType || '');
     if (type.startsWith('image/') && !link.querySelector('img')) {
       const image = document.createElement('img');
@@ -566,6 +717,8 @@ async function hydrateAttachments() {
       image.loading = 'lazy';
       link.prepend(image);
     }
+    const audio = link.querySelector('audio');
+    if (audio && !audio.src) audio.src = url;
   }
 }
 
@@ -622,6 +775,13 @@ function subscribeToConversation(conversationId) {
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: 'conversation_id=eq.' + conversationId }, (payload) => appendMessage(payload.new))
     .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages', filter: 'conversation_id=eq.' + conversationId }, (payload) => updateMessage(payload.new))
     .on('postgres_changes', { event: '*', schema: 'public', table: 'message_reactions' }, () => refreshReactions())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'conversation_members', filter: 'conversation_id=eq.' + conversationId }, () => {
+      clearTimeout(state.membershipRefreshTimer);
+      state.membershipRefreshTimer = setTimeout(() => refreshConversationState().catch(() => {}), 120);
+    })
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'conversations', filter: 'id=eq.' + conversationId }, () => {
+      refreshConversationState().catch(() => {});
+    })
     .on('broadcast', { event: 'typing' }, (event) => receiveTyping(event?.payload || event))
     .subscribe((status) => {
       if (status === 'CHANNEL_ERROR') showAppMessage('Новые сообщения будут загружены при следующем открытии чата.', true);
@@ -658,6 +818,7 @@ function renderComposerState() {
     $('composer-cancel').textContent = 'Отмена';
     $('send-message').textContent = '✓';
     $('attach-button').disabled = true;
+    $('voice-button').disabled = true;
     return;
   }
   if (state.replyTo) {
@@ -668,13 +829,15 @@ function renderComposerState() {
     context.hidden = true;
   }
   $('send-message').textContent = '↑';
-  $('attach-button').disabled = false;
+  $('attach-button').disabled = Boolean(state.mediaRecorder);
+  $('voice-button').disabled = Boolean(state.mediaRecorder);
   $('attachment-preview').hidden = !state.pendingFile;
   if (state.pendingFile) $('attachment-name').textContent = state.pendingFile.name;
   if (!state.editingMessage && !input.value) input.placeholder = 'Напишите сообщение';
 }
 
 function clearComposerState(clearText = false) {
+  if (state.mediaRecorder) stopVoiceRecording(true);
   state.replyTo = null;
   state.editingMessage = null;
   state.pendingFile = null;
@@ -688,10 +851,93 @@ function safeFileName(name) {
   return String(name || 'file').replace(/[^a-zA-Z0-9._()-]+/g, '_').slice(-120) || 'file';
 }
 
+function updateVoiceRecordingUi() {
+  const recording = Boolean(state.mediaRecorder && state.mediaRecorder.state !== 'inactive');
+  $('voice-recording').hidden = !recording;
+  $('voice-button').classList.toggle('recording', recording);
+  $('voice-button').textContent = recording ? '■' : '⌁';
+  $('voice-button').setAttribute('aria-label', recording ? 'Остановить запись' : 'Записать голосовое сообщение');
+  $('attach-button').disabled = recording || Boolean(state.editingMessage);
+  if (!recording) return;
+  const seconds = Math.max(0, Math.floor((Date.now() - state.voiceStartedAt) / 1000));
+  $('voice-recording-time').textContent = Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0');
+}
+
+function resetVoiceRecording() {
+  clearInterval(state.voiceTimer);
+  state.voiceTimer = null;
+  state.recordingStream?.getTracks().forEach((track) => track.stop());
+  state.mediaRecorder = null;
+  state.recordingStream = null;
+  state.voiceChunks = [];
+  state.voiceStartedAt = null;
+  state.discardVoice = false;
+  updateVoiceRecordingUi();
+  renderComposerState();
+}
+
+async function startVoiceRecording() {
+  if (!state.active || state.editingMessage) return;
+  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+    showAppMessage('Голосовые сообщения не поддерживаются этим браузером.', true);
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const preferred = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus'].find((type) => MediaRecorder.isTypeSupported(type));
+    const recorder = preferred ? new MediaRecorder(stream, { mimeType: preferred }) : new MediaRecorder(stream);
+    state.recordingStream = stream;
+    state.mediaRecorder = recorder;
+    state.voiceChunks = [];
+    state.discardVoice = false;
+    recorder.addEventListener('dataavailable', (event) => {
+      if (event.data?.size) state.voiceChunks.push(event.data);
+    });
+    recorder.addEventListener('stop', () => {
+      const chunks = state.voiceChunks;
+      const discard = state.discardVoice;
+      const type = recorder.mimeType || 'audio/webm';
+      resetVoiceRecording();
+      if (discard || !chunks.length) return;
+      const blob = new Blob(chunks, { type });
+      if (blob.size > 15 * 1024 * 1024) {
+        showAppMessage('Голосовое сообщение больше 15 МБ.', true);
+        return;
+      }
+      const extension = type.includes('ogg') ? 'ogg' : 'webm';
+      state.pendingFile = new File([blob], 'voice-message-' + new Date().toISOString().slice(11, 19).replace(/:/g, '-') + '.' + extension, { type });
+      renderComposerState();
+      showAppMessage('Голосовое сообщение готово к отправке.');
+    });
+    recorder.start(250);
+    state.voiceStartedAt = Date.now();
+    state.voiceTimer = setInterval(updateVoiceRecordingUi, 250);
+    updateVoiceRecordingUi();
+  } catch (error) {
+    showAppMessage('Не удалось включить микрофон: ' + humanError(error), true);
+  }
+}
+
+function stopVoiceRecording(discard = false) {
+  if (!state.mediaRecorder) return;
+  state.discardVoice = state.discardVoice || discard;
+  if (state.mediaRecorder.state !== 'inactive') state.mediaRecorder.stop();
+  else resetVoiceRecording();
+}
+
+function toggleVoiceRecording() {
+  if (state.mediaRecorder) stopVoiceRecording();
+  else startVoiceRecording();
+}
+
 async function sendMessage(event) {
   event.preventDefault();
   const input = $('message-input');
   const body = input.value.trim();
+  if (state.mediaRecorder) {
+    showAppMessage('Сначала остановите запись голосового сообщения.', true);
+    return;
+  }
   if (!state.active || (!body && !state.pendingFile)) return;
   const button = $('send-message');
   button.disabled = true;
@@ -727,7 +973,7 @@ async function sendMessage(event) {
         id: messageId,
         conversation_id: state.active.id,
         sender_id: state.user.id,
-        body: body || `📎 ${attachment.attachment_name || 'Файл'}`,
+        body: body || (String(attachment.attachment_type || '').startsWith('audio/') ? '🎤 Голосовое сообщение' : `📎 ${attachment.attachment_name || 'Файл'}`),
         reply_to: state.replyTo?.id || null,
         ...attachment,
       })
@@ -825,7 +1071,7 @@ async function handleMessageClick(event) {
 }
 
 function pickAttachment() {
-  if (!state.editingMessage) $('attachment-input').click();
+  if (!state.editingMessage && !state.mediaRecorder) $('attachment-input').click();
 }
 
 function selectAttachment() {
@@ -980,6 +1226,8 @@ $('message-search').addEventListener('input', () => {
   renderMessages(false);
 });
 $('add-member-button').addEventListener('click', addGroupMember);
+$('group-manage-button').addEventListener('click', toggleGroupPanel);
+$('group-member-form').addEventListener('click', handleGroupPanelClick);
 $('notification-toggle').addEventListener('click', enableNotifications);
 $('pinned-message').addEventListener('click', (event) => {
   if (event.target.closest('#unpin-message')) return clearPinnedMessage();
@@ -988,6 +1236,8 @@ $('pinned-message').addEventListener('click', (event) => {
 });
 $('composer-cancel').addEventListener('click', () => clearComposerState(true));
 $('attach-button').addEventListener('click', pickAttachment);
+$('voice-button').addEventListener('click', toggleVoiceRecording);
+$('voice-cancel').addEventListener('click', () => stopVoiceRecording(true));
 $('attachment-input').addEventListener('change', selectAttachment);
 $('attachment-remove').addEventListener('click', () => clearComposerState(false));
 $('emoji-toggle').addEventListener('click', () => { $('emoji-strip').hidden = !$('emoji-strip').hidden; });
@@ -999,3 +1249,7 @@ document.querySelectorAll('[data-compose-emoji]').forEach((button) => button.add
 }));
 
 init();
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('./service-worker.js').catch(() => {}));
+}
