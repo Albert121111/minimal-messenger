@@ -6,6 +6,7 @@ button { cursor: pointer; }
 [hidden] { display: none !important; }
 .eyebrow, .section-label { margin: 0; font-size: 10px; font-weight: 750; letter-spacing: .12em; color: #878783; }
 .muted { color: #6f6f6b; line-height: 1.5; }
+.boot-screen { min-height: 100dvh; display: grid; place-items: center; padding: 24px; text-align: center; color: #6f6f6b; }.boot-screen p:last-child { margin: 9px 0 0; font-size: 14px; }
 .auth-wrap { min-height: 100dvh; display: grid; place-items: center; padding: 24px; }
 .auth-card { width: min(100%, 400px); }
 .auth-card h1 { margin: 10px 0 8px; font-size: clamp(38px, 8vw, 54px); letter-spacing: -.075em; line-height: .95; }
@@ -20,9 +21,10 @@ input:focus { border-color: #151515; box-shadow: 0 0 0 3px #e7e7e2; }
 .app-shell { min-height: 100dvh; display: grid; grid-template-columns: minmax(280px, 360px) 1fr; }
 .sidebar { border-right: 1px solid #deded9; background: #fcfcfa; padding: 22px 14px; overflow: auto; }
 .sidebar-header, .chat-header { display: flex; justify-content: space-between; align-items: center; }
-.sidebar-header { padding: 0 8px 24px; }
-.sidebar-header strong { display: block; padding-top: 4px; font-size: 16px; }
+.sidebar-header { padding: 0 8px 18px; }
+.sidebar-header strong { display: block; padding-top: 4px; font-size: 16px; }.profile-summary { min-width: 0; }.profile-summary small { display: block; max-width: 220px; margin-top: 3px; overflow: hidden; color: #878783; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }.sidebar-actions { display: flex; align-items: center; gap: 4px; }
 .icon-button { border: 0; background: none; font-size: 22px; color: #555550; }
+.profile-form { display: grid; gap: 10px; margin: 0 8px 14px; padding: 12px; border-radius: 10px; background: #f0f0ec; }.profile-form label { font-size: 12px; }.profile-form input { padding: 10px 11px; border: 0; }.profile-form button { padding: 10px; border: 0; border-radius: 8px; background: #202020; color: #fff; font-size: 12px; font-weight: 700; }
 .search-wrap { padding: 0 0 10px; }.search-wrap input { background: #f0f0ec; border: 0; padding: 11px 12px; }
 .app-message { margin: 0 8px 8px; padding: 9px 10px; border-radius: 8px; background: #e9f4ea; color: #2d6a3c; font-size: 12px; line-height: 1.35; }.app-message[data-error="true"] { background: #fff0ee; color: #a1372c; }
 .section-label { padding: 20px 8px 8px; }
