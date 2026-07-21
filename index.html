@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <title>Сообщения</title>
     <link rel="manifest" href="manifest.webmanifest" />
-    <link rel="stylesheet" href="styles.css?v=7" />
+    <link rel="stylesheet" href="styles.css?v=8" />
   </head>
   <body>
     <main id="boot-screen" class="boot-screen" aria-live="polite"><div><p class="eyebrow">MINIMAL MESSENGER</p><p>Загрузка сообщений…</p></div></main>
@@ -80,6 +80,7 @@
           <div id="message-search-wrap" class="message-search-wrap" hidden><input id="message-search" type="search" placeholder="Поиск в этом чате" autocomplete="off" /></div>
           <div id="pinned-message" class="pinned-message" hidden><span>⌖</span><div><small>ЗАКРЕПЛЕНО</small><b id="pinned-copy"></b></div><button id="unpin-message" type="button" aria-label="Открепить сообщение">×</button></div>
           <section id="group-member-form" class="group-panel" hidden></section>
+          <section id="forward-panel" class="forward-panel" hidden></section>
           <div id="message-list" class="message-list" aria-live="polite"></div>
 
           <div class="composer-area">
@@ -100,6 +101,6 @@
       </section>
     </main>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="app.js?v=7"></script>
+    <script src="app.js?v=8"></script>
   </body>
 </html>
