@@ -13,6 +13,7 @@ const state = {
   signingUp: true,
   openingConversation: false,
   enteringApp: false,
+  searchRequest: 0,
   messageIds: new Set(),
 };
 
@@ -36,7 +37,25 @@ function finishBoot() {
 function showAuth(message = '', error = false) {
   state.channel?.unsubscribe();
   state.channel = null;
+  state.user = null;
+  state.profile = null;
+  state.conversations = [];
   state.active = null;
+  state.messageIds = new Set();
+  state.searchRequest += 1;
+  $('chat-title').textContent = '';
+  $('chat-status').textContent = 'личный чат';
+  $('chat').hidden = true;
+  $('empty-state').hidden = false;
+  $('message-list').innerHTML = '';
+  $('conversation-list').innerHTML = '';
+  $('user-search').value = '';
+  $('search-results').innerHTML = '';
+  $('profile-form').hidden = true;
+  $('profile-about').value = '';
+  $('my-username').textContent = '';
+  $('my-about').textContent = '';
+  showAppMessage();
   $('app-view').hidden = true;
   $('app-view').classList.remove('chat-open');
   $('auth-view').hidden = false;
@@ -46,6 +65,9 @@ function showAuth(message = '', error = false) {
 function humanError(error, fallback = 'Попробуйте ещё раз.') {
   const message = String(error?.message || error || '');
   if (/duplicate key|unique/i.test(message)) return 'Такой юзернейм уже занят.';
+  if (/invalid login credentials/i.test(message)) return 'Неверная почта или пароль.';
+  if (/email not confirmed/i.test(message)) return 'Подтвердите почту, затем войдите.';
+  if (/rate limit|too many requests/i.test(message)) return 'Слишком много попыток. Подождите немного и повторите.';
   if (/invalid recipient/i.test(message)) return 'Нельзя открыть чат с самим собой.';
   if (/user not found/i.test(message)) return 'Пользователь больше не существует.';
   if (/network|fetch/i.test(message)) return 'Нет соединения с сервером. Проверьте интернет и повторите.';
@@ -153,6 +175,7 @@ function renderConversations() {
 
 async function searchUsers() {
   const query = $('user-search').value.trim().toLowerCase();
+  const request = ++state.searchRequest;
   if (query.length < 2) {
     $('search-results').innerHTML = '';
     return;
@@ -164,6 +187,8 @@ async function searchUsers() {
     .ilike('username', `%${query}%`)
     .neq('id', state.user.id)
     .limit(8);
+
+  if (request !== state.searchRequest) return;
 
   if (error) {
     $('search-results').innerHTML = '<p class="notice">Не удалось выполнить поиск. Попробуйте ещё раз.</p>';
@@ -307,7 +332,6 @@ async function updateProfile(event) {
     if (error) throw error;
     state.profile = data;
     renderOwnProfile();
-    if (state.active?.person?.id === state.user.id) state.active.person.about = about;
     $('profile-form').hidden = true;
     showAppMessage('Статус сохранён.');
   } catch (error) {
