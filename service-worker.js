@@ -1,9 +1,9 @@
-const CACHE_NAME = 'minimal-messenger-v7';
+const CACHE_NAME = 'minimal-messenger-v8';
 const APP_SHELL = [
   './',
   './index.html',
-  './styles.css?v=7',
-  './app.js?v=7',
+  './styles.css?v=8',
+  './app.js?v=8',
   './manifest.webmanifest',
   './icon.svg',
   'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2'
