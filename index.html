@@ -8,7 +8,8 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <main id="auth-view" class="auth-wrap">
+    <main id="boot-screen" class="boot-screen" aria-live="polite"><div><p class="eyebrow">MINIMAL MESSENGER</p><p>Загрузка сообщений…</p></div></main>
+    <main id="auth-view" class="auth-wrap" hidden>
       <section class="auth-card">
         <p class="eyebrow">MINIMAL MESSENGER</p>
         <h1>Сообщения.<span>Просто.</span></h1>
@@ -27,9 +28,13 @@
     <main id="app-view" class="app-shell" hidden>
       <aside class="sidebar">
         <header class="sidebar-header">
-          <div><p class="eyebrow">СООБЩЕНИЯ</p><strong id="my-username"></strong></div>
-          <button id="sign-out" class="icon-button" title="Выйти" aria-label="Выйти">↗</button>
+          <div class="profile-summary"><p class="eyebrow">СООБЩЕНИЯ</p><strong id="my-username"></strong><small id="my-about"></small></div>
+          <div class="sidebar-actions"><button id="profile-settings" class="icon-button" type="button" title="Статус профиля" aria-label="Статус профиля">⚙</button><button id="sign-out" class="icon-button" type="button" title="Выйти" aria-label="Выйти">↗</button></div>
         </header>
+        <form id="profile-form" class="profile-form" hidden>
+          <label>Статус<input id="profile-about" maxlength="120" placeholder="Например, на связи" autocomplete="off" /></label>
+          <button type="submit">Сохранить статус</button>
+        </form>
         <div class="search-wrap"><input id="user-search" type="search" placeholder="Найти по юзернейму" autocomplete="off" /></div>
         <p id="app-message" class="app-message" role="status" aria-live="polite" hidden></p>
         <div id="search-results" class="people-list"></div>
@@ -47,6 +52,6 @@
       </section>
     </main>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="app.js?v=3"></script>
+    <script src="app.js?v=4"></script>
   </body>
 </html>
