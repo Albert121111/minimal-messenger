@@ -34,6 +34,8 @@ const state = {
   voiceStartedAt: null,
   discardVoice: false,
   membershipRefreshTimer: null,
+  forwardingMessage: null,
+  forwardingBusy: false,
 };
 
 function showMessage(message = '', error = false) {
@@ -63,6 +65,7 @@ function resetChatUi() {
   $('message-search').value = '';
   $('pinned-message').hidden = true;
   $('group-member-form').hidden = true;
+  $('forward-panel').hidden = true;
   $('add-member-button').hidden = true;
   $('group-manage-button').hidden = true;
   $('composer-context').hidden = true;
@@ -94,6 +97,8 @@ function showAuth(message = '', error = false) {
   state.messageQuery = '';
   state.remoteTyping = null;
   state.attachmentUrls = new Map();
+  state.forwardingMessage = null;
+  state.forwardingBusy = false;
   clearTimeout(state.membershipRefreshTimer);
   state.searchRequest += 1;
   resetChatUi();
@@ -133,6 +138,8 @@ function humanError(error, fallback = 'Попробуйте ещё раз.') {
   if (/choose at least one participant/i.test(message)) return 'Добавьте хотя бы одного участника.';
   if (/message cannot be edited/i.test(message)) return 'Это сообщение уже нельзя изменить.';
   if (/message cannot be deleted/i.test(message)) return 'Это сообщение уже нельзя удалить.';
+  if (/message is unavailable for forwarding|deleted messages cannot be forwarded/i.test(message)) return 'Это сообщение больше нельзя переслать.';
+  if (/attachment copy is required/i.test(message)) return 'Не удалось перенести вложение. Попробуйте ещё раз.';
   if (/message must contain/i.test(message)) return 'Сообщение должно содержать от 1 до 2000 символов.';
   if (/network|fetch/i.test(message)) return 'Нет соединения с сервером. Проверьте интернет и повторите.';
   return message || fallback;
@@ -548,6 +555,86 @@ async function handleGroupPanelClick(event) {
   if (action === 'leave') await leaveGroup();
 }
 
+function forwardLabel(message) {
+  if (message.deleted_at || !message.forwarded_from_username) return '';
+  return `<div class="forward-label">↪ Переслано от @${escapeHtml(message.forwarded_from_username)}</div>`;
+}
+
+function renderForwardPanel() {
+  const panel = $('forward-panel');
+  const source = state.forwardingMessage;
+  if (!source || !state.active) {
+    panel.hidden = true;
+    return;
+  }
+  const targets = state.conversations.filter((chat) => chat.id !== state.active.id);
+  panel.innerHTML = `
+    <div class="forward-panel-head"><div><small>ПЕРЕСЛАТЬ</small><b>${escapeHtml(messagePreview(source)).slice(0, 85)}</b></div><button type="button" data-forward-action="close" aria-label="Закрыть">×</button></div>
+    ${targets.length ? `<div class="forward-targets">${targets.map((chat) => `<button type="button" data-forward-action="send" data-conversation-id="${chat.id}">
+      ${avatarMarkup(conversationAvatar(chat), 'avatar forward-avatar')}
+      <span><b>${escapeHtml(conversationName(chat))}</b><small>${escapeHtml(conversationStatus(chat))}</small></span><i>›</i>
+    </button>`).join('')}</div>` : '<p class="notice">Создайте ещё один диалог или группу, чтобы переслать сообщение.</p>'}`;
+  panel.hidden = false;
+}
+
+function openForwardPanel(message) {
+  if (!message || message.deleted_at) return;
+  state.forwardingMessage = message;
+  $('group-member-form').hidden = true;
+  renderForwardPanel();
+}
+
+async function forwardMessage(targetConversationId) {
+  const source = state.forwardingMessage;
+  const target = state.conversations.find((chat) => chat.id === targetConversationId);
+  if (!source || !target || state.forwardingBusy) return;
+  state.forwardingBusy = true;
+  let copiedPath = null;
+  try {
+    let attachment = {};
+    if (source.attachment_path) {
+      const { data: file, error: downloadError } = await db.storage.from('message-files').download(source.attachment_path);
+      if (downloadError || !file) throw downloadError || new Error('Не удалось загрузить вложение.');
+      copiedPath = `${target.id}/${crypto.randomUUID()}/${safeFileName(source.attachment_name || 'attachment')}`;
+      const { error: uploadError } = await db.storage.from('message-files').upload(copiedPath, file, {
+        upsert: false,
+        contentType: source.attachment_type || file.type || 'application/octet-stream',
+      });
+      if (uploadError) throw uploadError;
+      attachment = {
+        forwarded_attachment_path: copiedPath,
+        forwarded_attachment_name: (source.attachment_name || 'Вложение').slice(0, 180),
+        forwarded_attachment_type: source.attachment_type || file.type || 'application/octet-stream',
+      };
+    }
+    const { error } = await db.rpc('forward_message', {
+      source_message_id: source.id,
+      target_conversation_id: target.id,
+      ...attachment,
+    });
+    if (error) throw error;
+    state.forwardingMessage = null;
+    $('forward-panel').hidden = true;
+    await loadConversations();
+    showAppMessage(`Сообщение переслано в ${conversationName(target)}.`);
+  } catch (error) {
+    if (copiedPath) db.storage.from('message-files').remove([copiedPath]).catch(() => {});
+    showAppMessage('Не удалось переслать сообщение: ' + humanError(error), true);
+  } finally {
+    state.forwardingBusy = false;
+  }
+}
+
+async function handleForwardPanelClick(event) {
+  const button = event.target.closest('[data-forward-action]');
+  if (!button) return;
+  if (button.dataset.forwardAction === 'close') {
+    state.forwardingMessage = null;
+    $('forward-panel').hidden = true;
+  }
+  if (button.dataset.forwardAction === 'send') await forwardMessage(button.dataset.conversationId);
+}
+
 function updateChatHeader() {
   if (!state.active) return;
   $('chat-title').textContent = conversationName(state.active);
@@ -568,9 +655,11 @@ async function openConversation(chat) {
   state.messageQuery = '';
   state.remoteTyping = null;
   state.attachmentUrls = new Map();
+  state.forwardingMessage = null;
   $('message-search').value = '';
   $('message-search-wrap').hidden = true;
   $('group-member-form').hidden = true;
+  $('forward-panel').hidden = true;
   $('emoji-strip').hidden = true;
   updateChatHeader();
   renderComposerState();
@@ -586,7 +675,7 @@ async function loadMessages() {
   if (!state.active) return;
   const { data, error } = await db
     .from('messages')
-    .select('id, conversation_id, sender_id, body, created_at, edited_at, deleted_at, reply_to, attachment_path, attachment_name, attachment_type')
+    .select('id, conversation_id, sender_id, body, created_at, edited_at, deleted_at, reply_to, attachment_path, attachment_name, attachment_type, forwarded_from_username, forwarded_from_message_id')
     .eq('conversation_id', state.active.id)
     .order('created_at');
   if (error) throw error;
@@ -656,6 +745,7 @@ function messageMarkup(message) {
     ? `<div class="reaction-picker">${['👍', '❤️', '😂', '😮', '🎉'].map((emoji) => `<button type="button" data-reaction="${encodeData(emoji)}" data-message-id="${message.id}">${emoji}</button>`).join('')}</div>` : '';
   const actions = deleted ? '' : `<div class="message-actions">
     <button type="button" data-message-action="reply" data-message-id="${message.id}" title="Ответить">↩</button>
+    <button type="button" data-message-action="forward" data-message-id="${message.id}" title="Переслать">↪</button>
     <button type="button" data-message-action="reaction-picker" data-message-id="${message.id}" title="Реакция">☺</button>
     <button type="button" data-message-action="pin" data-message-id="${message.id}" title="Закрепить">⌖</button>
     ${mine ? `<button type="button" data-message-action="edit" data-message-id="${message.id}" title="Изменить">✎</button><button type="button" data-message-action="delete" data-message-id="${message.id}" title="Удалить">⌫</button>` : ''}
@@ -663,6 +753,7 @@ function messageMarkup(message) {
   return `<article class="message-row ${mine ? 'mine' : ''}" id="message-${message.id}">
     <div class="message-wrap">
       <div class="message ${deleted ? 'deleted' : ''}">
+        ${forwardLabel(message)}
         ${message.reply_to ? replyMarkup(reply) : ''}
         ${deleted ? '<em>Сообщение удалено</em>' : `<div class="message-body">${escapeHtml(message.body).replace(/\n/g, '<br />')}</div>${attachmentMarkup(message)}`}
         <div class="message-meta"><time>${formatTime(message.created_at)}</time>${message.edited_at ? '<span>изменено</span>' : ''}${seenMarkup(message)}</div>
@@ -1050,6 +1141,7 @@ async function handleMessageClick(event) {
     renderComposerState();
     $('message-input').focus();
   }
+  if (action === 'forward') openForwardPanel(message);
   if (action === 'reaction-picker') {
     state.reactionPickerFor = state.reactionPickerFor === message.id ? null : message.id;
     renderMessages(false);
