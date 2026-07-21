@@ -5,15 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#101010" />
     <title>Сообщения</title>
-    <link rel="stylesheet" href="styles.css?v=5" />
+    <link rel="stylesheet" href="styles.css?v=6" />
   </head>
   <body>
     <main id="boot-screen" class="boot-screen" aria-live="polite"><div><p class="eyebrow">MINIMAL MESSENGER</p><p>Загрузка сообщений…</p></div></main>
+
     <main id="auth-view" class="auth-wrap" hidden>
       <section class="auth-card">
         <p class="eyebrow">MINIMAL MESSENGER</p>
-        <h1>Сообщения.<span>Просто.</span></h1>
-        <p class="muted">Вход — и вся история уже с вами.</p>
+        <h1>Сообщения.<span>Больше.</span></h1>
+        <p class="muted">Личные и групповые чаты, файлы, реакции — вся история уже с вами.</p>
         <form id="auth-form" novalidate>
           <label id="username-label">Юзернейм<input id="username" autocomplete="username" placeholder="например, alex_01" maxlength="24" /></label>
           <label>Эл. почта<input id="email" type="email" autocomplete="email" placeholder="you@example.com" required /></label>
@@ -28,13 +29,30 @@
     <main id="app-view" class="app-shell" hidden>
       <aside class="sidebar">
         <header class="sidebar-header">
-          <div class="profile-summary"><p class="eyebrow">СООБЩЕНИЯ</p><strong id="my-username"></strong><small id="my-about"></small></div>
-          <div class="sidebar-actions"><button id="profile-settings" class="icon-button" type="button" title="Статус профиля" aria-label="Статус профиля">⚙</button><button id="sign-out" class="icon-button" type="button" title="Выйти" aria-label="Выйти">↗</button></div>
+          <div class="profile-summary">
+            <span id="my-avatar" class="avatar my-avatar"></span>
+            <div><p class="eyebrow">СООБЩЕНИЯ</p><strong id="my-username"></strong><small id="my-about"></small></div>
+          </div>
+          <div class="sidebar-actions">
+            <button id="group-create-toggle" class="icon-button" type="button" title="Создать группу" aria-label="Создать группу">＋</button>
+            <button id="profile-settings" class="icon-button" type="button" title="Профиль" aria-label="Профиль">⚙</button>
+            <button id="sign-out" class="icon-button" type="button" title="Выйти" aria-label="Выйти">↗</button>
+          </div>
         </header>
+
         <form id="profile-form" class="profile-form" hidden>
+          <label>Аватар<input id="profile-avatar" maxlength="12" placeholder="🙂" autocomplete="off" /></label>
           <label>Статус<input id="profile-about" maxlength="120" placeholder="Например, на связи" autocomplete="off" /></label>
-          <button type="submit">Сохранить статус</button>
+          <button type="submit">Сохранить профиль</button>
         </form>
+
+        <form id="group-create-form" class="profile-form group-form" hidden>
+          <p class="form-title">Новая группа</p>
+          <label>Название<input id="group-title" maxlength="60" placeholder="Например, Команда" autocomplete="off" required /></label>
+          <label>Участники<input id="group-members" placeholder="anna, alex_01" autocomplete="off" required /></label>
+          <button type="submit">Создать группу</button>
+        </form>
+
         <div class="search-wrap"><input id="user-search" type="search" placeholder="Найти по юзернейму" autocomplete="off" /></div>
         <p id="app-message" class="app-message" role="status" aria-live="polite" hidden></p>
         <div id="search-results" class="people-list"></div>
@@ -43,15 +61,40 @@
       </aside>
 
       <section class="chat-panel">
-        <div id="empty-state" class="empty-state"><div><p class="eyebrow">ВАШИ СООБЩЕНИЯ</p><h2>Выберите диалог<br />или найдите человека.</h2></div></div>
+        <div id="empty-state" class="empty-state"><div><p class="eyebrow">ВАШИ СООБЩЕНИЯ</p><h2>Выберите диалог,<br />создайте группу или найдите человека.</h2></div></div>
+
         <div id="chat" class="chat" hidden>
-          <header class="chat-header"><button id="mobile-back" class="mobile-back" type="button" aria-label="К списку диалогов">‹</button><strong id="chat-title"></strong><span id="chat-status">личный чат</span></header>
+          <header class="chat-header">
+            <button id="mobile-back" class="mobile-back" type="button" aria-label="К списку диалогов">‹</button>
+            <div class="chat-heading"><strong id="chat-title"></strong><span id="chat-status">личный чат</span></div>
+            <div class="chat-actions">
+              <button id="message-search-toggle" class="icon-button small-icon" type="button" title="Поиск в чате" aria-label="Поиск в чате">⌕</button>
+              <button id="add-member-button" class="icon-button small-icon" type="button" title="Добавить участника" aria-label="Добавить участника" hidden>＋</button>
+              <button id="notification-toggle" class="icon-button small-icon" type="button" title="Включить уведомления" aria-label="Включить уведомления">♢</button>
+            </div>
+          </header>
+
+          <div id="message-search-wrap" class="message-search-wrap" hidden><input id="message-search" type="search" placeholder="Поиск в этом чате" autocomplete="off" /></div>
+          <div id="pinned-message" class="pinned-message" hidden><span>⌖</span><div><small>ЗАКРЕПЛЕНО</small><b id="pinned-copy"></b></div><button id="unpin-message" type="button" aria-label="Открепить сообщение">×</button></div>
+          <form id="group-member-form" hidden></form>
           <div id="message-list" class="message-list" aria-live="polite"></div>
-          <form id="message-form" class="composer"><input id="message-input" maxlength="2000" placeholder="Напишите сообщение" autocomplete="off" /><button type="submit" aria-label="Отправить">↑</button></form>
+
+          <div class="composer-area">
+            <div id="composer-context" class="composer-context" hidden><span id="composer-context-copy"></span><button id="composer-cancel" type="button" aria-label="Отменить">×</button></div>
+            <div id="attachment-preview" class="attachment-preview" hidden><span>📎</span><b id="attachment-name"></b><button id="attachment-remove" type="button" aria-label="Убрать файл">×</button></div>
+            <div id="emoji-strip" class="emoji-strip" hidden><button type="button" data-compose-emoji="😀">😀</button><button type="button" data-compose-emoji="👍">👍</button><button type="button" data-compose-emoji="❤️">❤️</button><button type="button" data-compose-emoji="😂">😂</button><button type="button" data-compose-emoji="🎉">🎉</button></div>
+            <form id="message-form" class="composer">
+              <button id="attach-button" type="button" aria-label="Прикрепить файл" title="Прикрепить файл">＋</button>
+              <button id="emoji-toggle" type="button" aria-label="Эмодзи" title="Эмодзи">☺</button>
+              <input id="attachment-input" type="file" hidden accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.txt" />
+              <input id="message-input" maxlength="2000" placeholder="Напишите сообщение" autocomplete="off" />
+              <button id="send-message" type="submit" aria-label="Отправить">↑</button>
+            </form>
+          </div>
         </div>
       </section>
     </main>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="app.js?v=5"></script>
+    <script src="app.js?v=6"></script>
   </body>
 </html>
